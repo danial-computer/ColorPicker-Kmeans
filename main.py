@@ -5,135 +5,147 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="danial 240030", page_icon="🎨", layout="centered")
-st.title("danial 240030")
+# Konfigurasi halaman dibuat menjadi WIDE
+st.set_page_config(page_title="danial 240030", page_icon="🎨", layout="wide")
+
+# CSS tambahan untuk sedikit mengurangi padding atas bawaan Streamlit
+st.markdown("""
+    <style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 def rgb_to_hex(rgb):
     return '#{:02x}{:02x}{:02x}'.format(int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
-def get_contrast_text_color(rgb):
-    brightness = (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114)
-    return "#000000" if brightness > 128 else "#FFFFFF"
-
-# Fungsi ini di-cache agar grafik elbow tidak perlu dihitung ulang setiap kali slider digeser
 @st.cache_data(show_spinner=False)
 def calculate_elbow(pixels):
     inertias = []
-    K_range = range(1, 11) # Menguji K dari 1 sampai 10
+    K_range = range(1, 11)
     for k in K_range:
         kmeans = KMeans(n_clusters=k, init='k-means++', n_init="auto", random_state=42)
         kmeans.fit(pixels)
         inertias.append(kmeans.inertia_)
     return K_range, inertias
 
-uploaded_file = st.file_uploader(label="Unggah Gambar di Sini", type=["jpg", "jpeg", "png"])
+# ── 1. SIDEBAR (PENGATURAN) ──
+with st.sidebar:
+    st.title("⚙️ Pengaturan")
+    num_colors = st.slider("Jumlah Warna (K)", min_value=2, max_value=10, value=5, help="Geser untuk menentukan berapa banyak warna yang ingin diekstrak.")
+    st.divider()
+    st.caption("Aplikasi: danial 240030")
+
+# ── 2. MAIN HEADER ──
+st.title("🎨 AI Color Palette Extractor")
+st.markdown("Ekstrak warna dominan dari gambarmu menggunakan algoritma **K-Means Clustering**.")
+
+uploaded_file = st.file_uploader("Unggah gambar (JPG, PNG)", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     
-    # Kompresi gambar di awal agar pemrosesan lebih cepat
+    # Kompresi piksel untuk efisiensi komputasi
     img_compressed = image.copy()
     img_compressed.thumbnail((200, 200))
     img_array = np.array(img_compressed)
     pixels = img_array.reshape(-1, 3)
-
-    st.divider()
     
-    # ── METODE ELBOW ──
-    st.subheader("1. Analisis Metode Elbow")
-    st.write("Grafik di bawah ini menunjukkan tingkat 'distorsi' untuk setiap jumlah warna. Titik patahan (elbow) adalah rekomendasi jumlah warna yang paling optimal.")
+    # ── 3. TAMPILAN GAMBAR & PALET ──
+    st.write("---")
+    col_img, col_palette = st.columns([1, 2], gap="large")
     
-    with st.spinner('Menghitung Metode Elbow (mungkin memakan waktu beberapa detik)...'):
-        K_range, inertias = calculate_elbow(pixels)
+    with col_img:
+        st.image(image, caption="Gambar Original", use_container_width=True)
         
-        fig_elbow, ax_elbow = plt.subplots(figsize=(8, 3))
-        ax_elbow.plot(K_range, inertias, marker='o', linestyle='-', color='teal')
-        ax_elbow.set_title("Grafik Patahan (Elbow Method)", fontsize=12)
-        ax_elbow.set_xlabel("Jumlah Cluster (K)", fontsize=10)
-        ax_elbow.set_ylabel("Inertia (Distorsi)", fontsize=10)
-        ax_elbow.set_xticks(K_range)
-        ax_elbow.grid(True, linestyle='--', alpha=0.6)
+    with col_palette:
+        st.subheader(f"✨ Palet {num_colors} Warna Dominan")
         
-        st.pyplot(fig_elbow)
-        plt.close(fig_elbow)
+        with st.spinner('Mengekstrak palet warna...'):
+            kmeans = KMeans(n_clusters=num_colors, init='k-means++', n_init="auto", random_state=42)
+            labels = kmeans.fit_predict(pixels)
+            centroids = kmeans.cluster_centers_.astype(int)
 
-    st.divider()
+            counts = np.bincount(labels)
+            percentages = counts / len(labels)
+            sorted_indices = np.argsort(percentages)[::-1]
+            sorted_colors = centroids[sorted_indices]
+            sorted_percentages = percentages[sorted_indices]
 
-    # ── SLIDER & EKSTRAKSI WARNA ──
-    st.subheader("2. Ekstraksi Palet Warna")
-    # Slider untuk memilih jumlah K (warna)
-    num_colors = st.slider("Pilih jumlah warna yang ingin diekstrak:", min_value=2, max_value=10, value=5)
+            # Membuat kolom horizontal sesuai jumlah warna yang dipilih
+            color_cols = st.columns(num_colors)
+            for col, color, percent in zip(color_cols, sorted_colors, sorted_percentages):
+                hex_code = rgb_to_hex(color)
+                pct_string = f"{percent * 100:.1f}%"
+                
+                with col:
+                    # Desain Color Card UI
+                    st.markdown(f"""
+                        <div style="
+                            background-color: {hex_code};
+                            height: 120px;
+                            border-radius: 12px;
+                            margin-bottom: 10px;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                            transition: transform 0.2s;
+                        ">
+                        </div>
+                        <div style="text-align: center; font-family: monospace;">
+                            <p style="margin: 0; font-weight: 800; font-size: 1.1em; color: #333;">{hex_code}</p>
+                            <p style="margin: 0; font-size: 0.9em; color: #666;">{pct_string}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
 
-    col_left, col_right = st.columns([1.2, 1])
+    st.write("---")
 
-    with col_left:
-        st.write("**Gambar Asli**")
-        st.image(image, use_container_width=True)
+    # ── 4. ANALISIS TEKNIS (TABS) ──
+    st.subheader("🔬 Analisis Teknis (Di Balik Layar)")
+    tab_elbow, tab_pca = st.tabs(["📉 Metode Elbow", "🌌 Scatter Plot (PCA 2D)"])
+    
+    with tab_elbow:
+        st.markdown("Grafik ini menunjukkan evaluasi nilai *inertia* (seberapa rapat cluster). Titik patahan (elbow) membantu menentukan jumlah $K$ yang optimal.")
+        with st.spinner('Menghitung nilai Elbow...'):
+            K_range, inertias = calculate_elbow(pixels)
+            fig_elbow, ax_elbow = plt.subplots(figsize=(10, 4))
+            ax_elbow.plot(K_range, inertias, marker='o', linestyle='-', color='#FF4B4B', linewidth=2)
+            ax_elbow.set_title("Evaluasi K-Means dengan Elbow Method")
+            ax_elbow.set_xlabel("Jumlah Cluster (K)")
+            ax_elbow.set_ylabel("Inertia")
+            ax_elbow.set_xticks(K_range)
+            ax_elbow.grid(True, linestyle='--', alpha=0.5)
+            # Menghilangkan border atas dan kanan agar lebih estetik
+            ax_elbow.spines['top'].set_visible(False)
+            ax_elbow.spines['right'].set_visible(False)
+            
+            st.pyplot(fig_elbow)
+            plt.close(fig_elbow)
 
-    with col_right:
-        st.write(f"**Top {num_colors} Warna Dominan**")
+    with tab_pca:
+        st.markdown(f"Visualisasi distribusi piksel dan *centroid* pada dimensi ruang yang direduksi menjadi 2D menggunakan PCA untuk **$K={num_colors}$**.")
         
-        # K-Means final menggunakan jumlah warna dari slider
-        kmeans = KMeans(n_clusters=num_colors, init='k-means++', n_init="auto", random_state=42)
-        labels = kmeans.fit_predict(pixels)
-        centroids = kmeans.cluster_centers_.astype(int)
+        N_SAMPLE = 1000
+        sample_idx = np.random.choice(len(pixels), size=min(N_SAMPLE, len(pixels)), replace=False)
+        sample_pixels = pixels[sample_idx]
+        
+        pca = PCA(n_components=2)
+        pixels_2d = pca.fit_transform(sample_pixels)
+        centroids_2d = pca.transform(centroids)
 
-        counts = np.bincount(labels)
-        percentages = counts / len(labels)
-        sorted_indices = np.argsort(percentages)[::-1]
-        sorted_colors = centroids[sorted_indices]
-        sorted_percentages = percentages[sorted_indices]
+        colors_normalized = sample_pixels / 255.0
+        centroid_colors = np.clip(centroids / 255.0, 0, 1)
 
-        for i, (color, percent) in enumerate(zip(sorted_colors, sorted_percentages)):
-            hex_code = rgb_to_hex(color)
-            text_color = get_contrast_text_color(color)
-            pct_string = f"{percent * 100:.1f}%"
-            st.markdown(
-                f"""
-                <div style="
-                    background-color: {hex_code}; 
-                    color: {text_color};
-                    padding: 10px 15px; 
-                    border-radius: 8px; 
-                    margin-bottom: 8px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    font-weight: bold;
-                    box-shadow: 1px 1px 4px rgba(0,0,0,0.15);
-                ">
-                    <span>{hex_code}</span>
-                    <span style="opacity: 0.85; font-size: 0.9em;">{pct_string}</span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+        fig_pca, ax_pca = plt.subplots(figsize=(10, 4))
+        ax_pca.scatter(pixels_2d[:, 0], pixels_2d[:, 1], c=colors_normalized, s=15, alpha=0.6, linewidths=0)
+        ax_pca.scatter(centroids_2d[:, 0], centroids_2d[:, 1], c=centroid_colors, s=300, marker='X', edgecolors='white', linewidths=2, zorder=5, label="Centroid")
 
-    st.divider()
-
-    # ── SCATTER PLOT ──
-    st.subheader("3. Visualisasi Proses K-Means (PCA 2D)")
-    
-    N_SAMPLE = 800
-    sample_idx = np.random.choice(len(pixels), size=min(N_SAMPLE, len(pixels)), replace=False)
-    sample_pixels = pixels[sample_idx]
-    
-    pca = PCA(n_components=2)
-    pixels_2d = pca.fit_transform(sample_pixels)
-    centroids_2d = pca.transform(centroids)
-
-    colors_normalized = sample_pixels / 255.0
-    centroid_colors = np.clip(centroids / 255.0, 0, 1)
-
-    fig_pca, ax_pca = plt.subplots(figsize=(8, 4))
-    ax_pca.scatter(pixels_2d[:, 0], pixels_2d[:, 1], c=colors_normalized, s=6, alpha=0.55, linewidths=0)
-    ax_pca.scatter(centroids_2d[:, 0], centroids_2d[:, 1], c=centroid_colors, s=250, marker='X', edgecolors='black', linewidths=1.2, zorder=5, label="Centroid")
-
-    ax_pca.set_title(f"Distribusi Piksel ({num_colors} Cluster)", fontsize=12)
-    ax_pca.set_xlabel("PCA Komponen 1", fontsize=10)
-    ax_pca.set_ylabel("PCA Komponen 2", fontsize=10)
-    ax_pca.legend(fontsize=9)
-    plt.tight_layout()
-
-    st.pyplot(fig_pca)
-    plt.close(fig_pca)
+        ax_pca.set_title(f"Distribusi Piksel di Ruang PCA", fontsize=12)
+        ax_pca.set_xlabel("Principal Component 1")
+        ax_pca.set_ylabel("Principal Component 2")
+        ax_pca.spines['top'].set_visible(False)
+        ax_pca.spines['right'].set_visible(False)
+        ax_pca.legend()
+        
+        st.pyplot(fig_pca)
+        plt.close(fig_pca)
